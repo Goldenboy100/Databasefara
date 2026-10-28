@@ -1,0 +1,7 @@
+{
+    email maktabakre@gmail.com
+}
+
+goldenkrd.com, www.goldenkrd.com {
+    reverse_proxy localhost:3000
+}

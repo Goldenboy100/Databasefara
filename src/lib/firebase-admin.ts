@@ -9,5 +9,8 @@ if (!getApps().length) {
   });
 }
 
+const db = getFirestore(firebaseConfig.firestoreDatabaseId);
+db.settings({ ignoreUndefinedProperties: true });
+
 export const adminAuth = getAuth();
-export const adminDb = getFirestore(firebaseConfig.firestoreDatabaseId);
+export const adminDb = db;

@@ -117,6 +117,9 @@ async function startServer() {
     });
   });
 
+  // Health check
+  app.get("/api/health", (req, res) => res.json({ status: "ok", time: new Date().toISOString() }));
+
   // API Routes
   app.post("/api/login", requireAuth, async (req: any, res) => {
     try {
@@ -230,24 +233,47 @@ async function startServer() {
       }
     });
 
+    app.post(`/api/${table}`, async (req, res) => {
+      try {
+        const data = req.body;
+        const id = data.id || Date.now().toString();
+        await db.collection(table).doc(id).set(data);
+        res.json({ success: true, id });
+        io.emit(`${table}:updated`, data);
+      } catch (err) {
+        res.status(500).json({ error: `Failed to create ${table}` });
+      }
+    });
+
     app.put(`/api/${table}`, async (req, res) => {
       try {
         const data = req.body;
         if (Array.isArray(data)) {
           const batch = db.batch();
-          // Note: In a real app, we'd need to handle deletion if that's the intent
           data.forEach(item => {
             const ref = db.collection(table).doc(item.id || 'main');
             batch.set(ref, item);
           });
           await batch.commit();
         } else {
-          await db.collection(table).doc('main').set(data);
+          const id = data.id || 'main';
+          await db.collection(table).doc(id).set(data);
         }
         res.json({ success: true });
         io.emit(`${table}:updated`, data);
       } catch (err) {
         res.status(500).json({ error: `Failed to update ${table}` });
+      }
+    });
+
+    app.delete(`/api/${table}/:id`, async (req, res) => {
+      try {
+        const id = req.params.id;
+        await db.collection(table).doc(id).delete();
+        res.json({ success: true });
+        io.emit(`${table}:deleted`, { id });
+      } catch (err) {
+        res.status(500).json({ error: `Failed to delete from ${table}` });
       }
     });
   };
@@ -411,7 +437,10 @@ async function startServer() {
 
   // Static Serving & Vite Middleware
   if (process.env.NODE_ENV !== "production") {
-    const vite = await createViteServer({ server: { middlewareMode: true }, appType: "spa" });
+    const vite = await createViteServer({ 
+      server: { middlewareMode: true, hmr: false }, 
+      appType: "spa" 
+    });
     app.use(vite.middlewares);
   } else {
     const distPath = path.join(__dirname, "dist");
@@ -422,7 +451,21 @@ async function startServer() {
     });
   }
 
-  httpServer.listen(3000, "0.0.0.0", () => console.log("Server running on port 3000"));
+  httpServer.listen(3000, "0.0.0.0", () => {
+    console.log("Server running on port 3000");
+    console.log("Environment:", process.env.NODE_ENV);
+  });
 }
 
-startServer();
+process.on('uncaughtException', (err) => {
+  console.error('Uncaught Exception:', err);
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('Unhandled Rejection at:', promise, 'reason:', reason);
+});
+
+startServer().catch(err => {
+  console.error("Failed to start server:", err);
+  process.exit(1);
+});

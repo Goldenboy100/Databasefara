@@ -1,5 +1,8 @@
 {
   "name": "Remix Remix: دراوي جيهانیgg",
   "description": "سیستەمی پێشکەوتووی نرخی دراو و ئاڵتون. خاوەنی سیستەمی کۆنترۆڵی وردی بەکارهێنەران و نرخەکان.",
-  "requestFramePermissions": []
+  "requestFramePermissions": [],
+  "capabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
 }

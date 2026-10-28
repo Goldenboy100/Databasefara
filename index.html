@@ -4,79 +4,104 @@
     <meta charset="UTF-8">
     <script>
       (function() {
-        // Safe JSON.parse
-        const originalParse = JSON.parse;
-        JSON.parse = function(text, reviver) {
-          if (text === undefined || text === "undefined" || text === null) return null;
-          try {
-            return originalParse(text, reviver);
-          } catch (e) {
-            return null;
+        // Omni-Mock v6: Total Canvas & WebGL Immunity
+        const nop = () => {};
+        const emptyObj = {};
+        
+        const mockContext = new Proxy({}, {
+          get: (target, prop) => {
+            if (prop === 'canvas') return mockCanvas;
+            if (prop === 'measureText') return () => ({ width: 0, actualBoundingBoxAscent: 0, actualBoundingBoxDescent: 0 });
+            if (prop === 'getImageData') return () => ({ data: new Uint8ClampedArray(4), width: 1, height: 1 });
+            if (prop === 'getParameter') return () => "Mock";
+            if (prop === 'getSupportedExtensions') return () => [];
+            if (prop === 'getShaderPrecisionFormat') return () => ({ precision: 23, rangeMin: 127, rangeMax: 127 });
+            if (typeof prop === 'string' && (prop.startsWith('create') || prop.startsWith('get') || prop.startsWith('is'))) return () => ({});
+            return nop;
           }
+        });
+
+        const mockCanvas = new Proxy(document.createElement('div'), {
+          get: (target, prop) => {
+            if (prop === 'getContext') return () => mockContext;
+            if (prop === 'toDataURL') return () => "data:image/png;base64,";
+            if (prop === 'toBlob') return (cb) => { if(cb) cb(new Blob()); };
+            if (prop === 'style') return {};
+            if (prop === 'width') return 300;
+            if (prop === 'height') return 150;
+            if (prop === 'parentElement') return document.body;
+            if (prop === 'nodeType') return 1;
+            if (prop === 'tagName') return 'CANVAS';
+            return target[prop] || nop;
+          }
+        });
+
+        function infect(win) {
+          if (!win || win.__infected) return;
+          try {
+            win.__infected = true;
+            
+            // Prototypes
+            if (win.HTMLCanvasElement) win.HTMLCanvasElement.prototype.getContext = () => mockContext;
+            if (win.OffscreenCanvas) win.OffscreenCanvas.prototype.getContext = () => mockContext;
+            
+            // Global Context Classes
+            win.WebGLRenderingContext = win.WebGLRenderingContext || function() {};
+            win.WebGL2RenderingContext = win.WebGL2RenderingContext || function() {};
+            
+            // Factory overrides
+            const oldCreate = win.document.createElement;
+            win.document.createElement = function(tag) {
+              try {
+                const el = oldCreate.apply(this, arguments);
+                if (tag && tag.toLowerCase() === 'canvas') return el || mockCanvas;
+                return el;
+              } catch(e) {
+                if (tag && tag.toLowerCase() === 'canvas') return mockCanvas;
+                throw e;
+              }
+            };
+
+            // Lookup overrides as safety net
+            const oldGetId = win.document.getElementById;
+            win.document.getElementById = function(id) {
+              const el = oldGetId.apply(this, arguments);
+              if (!el && id && (id.includes('canvas') || id.includes('google'))) return mockCanvas;
+              return el;
+            };
+
+            const oldQuery = win.document.querySelector;
+            win.document.querySelector = function(sel) {
+              const el = oldQuery.apply(this, arguments);
+              if (!el && sel && (sel === 'canvas' || sel.includes('canvas'))) return mockCanvas;
+              return el;
+            };
+
+          } catch(e) {}
+        }
+
+        infect(window);
+
+        // Viral infection via Prototype
+        const oldAppend = Element.prototype.appendChild;
+        Element.prototype.appendChild = function(child) {
+          const res = oldAppend.apply(this, arguments);
+          if (child && child.tagName === 'IFRAME') {
+            try { infect(child.contentWindow); } catch(e) {}
+          }
+          return res;
         };
 
-        // Aggressive Safety mock for Canvas & WebGL (fixes Firebase/GAPI crashes)
-        (function() {
-          const nop = () => {};
-          const mockContext = {
-            fillRect: nop, clearRect: nop, putImageData: nop, setTransform: nop,
-            drawImage: nop, save: nop, restore: nop, beginPath: nop, moveTo: nop,
-            lineTo: nop, closePath: nop, stroke: nop, fill: nop, arc: nop,
-            measureText: () => ({ width: 0 }), fillText: nop,
-            createLinearGradient: () => ({ addColorStop: nop }),
-            createRadialGradient: () => ({ addColorStop: nop }),
-            createPattern: () => ({}),
-            getImageData: () => ({ data: new Uint8ClampedArray(4) }),
-            isPointInPath: () => false, isPointInStroke: () => false,
-            // WebGL specific
-            canvas: { width: 300, height: 150 },
-            viewport: nop, clearColor: nop, clear: nop, createShader: nop,
-            shaderSource: nop, compileShader: nop, getShaderParameter: () => true,
-            createProgram: nop, attachShader: nop, linkProgram: nop,
-            getProgramParameter: () => true, useProgram: nop,
-            createBuffer: nop, bindBuffer: nop, bufferData: nop,
-            enableVertexAttribArray: nop, vertexAttribPointer: nop,
-            drawArrays: nop, getAttribLocation: () => 0, getUniformLocation: () => ({}),
-            uniformMatrix4fv: nop, uniform1i: nop, uniform1f: nop,
-            createTexture: nop, bindTexture: nop, texImage2D: nop,
-            texParameteri: nop, activeTexture: nop, getExtension: () => null,
-            getParameter: () => "Mock", getSupportedExtensions: () => [],
-          };
-
-          // Prototype Patching
-          if (typeof HTMLCanvasElement !== 'undefined') {
-            HTMLCanvasElement.prototype.getContext = function() { return mockContext; };
-            HTMLCanvasElement.prototype.toDataURL = function() { return "data:image/png;base64,"; };
-            HTMLCanvasElement.prototype.toBlob = function(cb) { if(cb) cb(new Blob()); };
-          }
-
-          // OffscreenCanvas Patching
-          if (typeof OffscreenCanvas !== 'undefined') {
-            OffscreenCanvas.prototype.getContext = function() { return mockContext; };
-          } else {
-            window.OffscreenCanvas = function() {
-              return { 
-                getContext: () => mockContext, 
-                convertToBlob: () => Promise.resolve(new Blob()),
-                width: 300, height: 150
-              };
-            };
-          }
-
-          // document.createElement Overriding
-          const originalCreateElement = document.createElement;
-          document.createElement = function(tagName, options) {
-            if (tagName && String(tagName).toLowerCase() === 'canvas') {
-              const el = originalCreateElement.call(document, tagName, options) || {};
-              if (!el.getContext) el.getContext = () => mockContext;
-              if (!el.style) el.style = {};
-              if (!el.setAttribute) el.setAttribute = nop;
-              if (!el.addEventListener) el.addEventListener = nop;
-              return el;
+        const observer = new MutationObserver((mutations) => {
+          for (const m of mutations) {
+            for (const node of m.addedNodes) {
+              if (node.tagName === 'IFRAME') {
+                try { infect(node.contentWindow); } catch(e) {}
+              }
             }
-            return originalCreateElement.call(document, tagName, options);
-          };
-        })();
+          }
+        });
+        observer.observe(document, { childList: true, subtree: true });
       })();
     </script>
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">

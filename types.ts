@@ -1,5 +1,41 @@
 
-// Removed CurrencyRate, CryptoRate, MetalRate interfaces
+export interface CurrencyRate {
+  id: string;
+  name: string;
+  code: string;
+  flag: string;
+  buy: number;
+  sell: number;
+  change24h: number;
+  lastUpdated: string;
+  category: string;
+  isPremium?: boolean;
+}
+
+export interface CryptoRate {
+  id: string;
+  name: string;
+  symbol: string;
+  icon: string;
+  price: number;
+  change24h: number;
+  lastUpdated: string;
+  category?: string;
+}
+
+export interface MetalRate {
+  id: string;
+  name: string;
+  symbol?: string;
+  buy: number;
+  sell: number;
+  price?: number;
+  unit: string;
+  lastUpdated: string;
+  category?: string;
+  change?: string;
+  change24h?: number;
+}
 
 
 export interface Headline {

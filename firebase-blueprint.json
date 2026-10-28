@@ -1,0 +1,188 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "System users and shop owners",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "businessName": { "type": "string" },
+        "email": { "type": "string" },
+        "password": { "type": "string" },
+        "phone": { "type": "string" },
+        "country": { "type": "string" },
+        "city": { "type": "string" },
+        "address": { "type": "string" },
+        "role": { "type": "string" },
+        "status": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "expiresAt": { "type": "string", "format": "date-time" },
+        "avatar": { "type": "string" },
+        "theme": { "type": "string" },
+        "language": { "type": "string" },
+        "activityPoints": { "type": "number" },
+        "wallet": { "type": "object" },
+        "fcmToken": { "type": "string" }
+      },
+      "required": ["id", "email", "role", "status"]
+    },
+    "Rate": {
+      "title": "Rate",
+      "description": "Currency and metal rates",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "code": { "type": "string" },
+        "symbol": { "type": "string" },
+        "buy": { "type": "number" },
+        "sell": { "type": "number" },
+        "price": { "type": "number" },
+        "change24h": { "type": "number" },
+        "lastUpdated": { "type": "string", "format": "date-time" },
+        "change": { "type": "string" },
+        "flag": { "type": "string" },
+        "icon": { "type": "string" },
+        "category": { "type": "string" },
+        "unit": { "type": "string" },
+        "isPremium": { "type": "boolean" }
+      },
+      "required": ["id", "name"]
+    },
+    "Headline": {
+      "title": "Headline",
+      "description": "News headlines and announcements",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "text": { "type": "string" },
+        "date": { "type": "string", "format": "date-time" },
+        "active": { "type": "boolean" }
+      },
+      "required": ["id", "text", "active"]
+    },
+    "Ad": {
+      "title": "Ad",
+      "description": "Advertisements",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "description": { "type": "string" },
+        "image": { "type": "string" },
+        "video": { "type": "string" },
+        "url": { "type": "string" },
+        "link": { "type": "string" },
+        "active": { "type": "boolean" },
+        "aspectRatio": { "type": "string" },
+        "type": { "type": "string" }
+      },
+      "required": ["id", "active"]
+    },
+    "Config": {
+      "title": "Config",
+      "description": "Global application configuration",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "data": { "type": "string" }
+      },
+      "required": ["id", "data"]
+    },
+    "AccountingClient": {
+      "title": "Accounting Client",
+      "description": "Clients for accounting system",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "name": { "type": "string" },
+        "phone": { "type": "string" },
+        "debtUSD": { "type": "number" },
+        "debtIQD": { "type": "number" },
+        "debtToman": { "type": "number" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "userId", "name"]
+    },
+    "AccountingTransaction": {
+      "title": "Accounting Transaction",
+      "description": "Transactions for accounting system",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "type": { "type": "string" },
+        "amount": { "type": "number" },
+        "currency": { "type": "string" },
+        "rate": { "type": "number" },
+        "totalConverted": { "type": "number" },
+        "targetCurrency": { "type": "string" },
+        "clientId": { "type": "string" },
+        "clientName": { "type": "string" },
+        "partnerId": { "type": "string" },
+        "partnerName": { "type": "string" },
+        "senderName": { "type": "string" },
+        "receiverName": { "type": "string" },
+        "destination": { "type": "string" },
+        "category": { "type": "string" },
+        "note": { "type": "string" },
+        "status": { "type": "string" },
+        "date": { "type": "string", "format": "date-time" },
+        "createdBy": { "type": "string" },
+        "employeeId": { "type": "string" }
+      },
+      "required": ["id", "userId", "type", "amount", "currency"]
+    },
+    "AccountingBalance": {
+      "title": "Accounting Balance",
+      "description": "Balance for accounting system",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "usd": { "type": "number" },
+        "iqd": { "type": "number" },
+        "toman": { "type": "number" },
+        "lastUpdated": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "userId"]
+    }
+  },
+  "firestore": {
+    "users": {
+      "schema": "User",
+      "description": "Collection of all users"
+    },
+    "rates": {
+      "schema": "Rate",
+      "description": "Live exchange and metal rates"
+    },
+    "headlines": {
+      "schema": "Headline",
+      "description": "News headlines"
+    },
+    "ads": {
+      "schema": "Ad",
+      "description": "Global advertisements"
+    },
+    "config": {
+      "schema": "Config",
+      "description": "App configuration"
+    },
+    "accounting_clients": {
+      "schema": "AccountingClient",
+      "description": "Accounting clients"
+    },
+    "accounting_transactions": {
+      "schema": "AccountingTransaction",
+      "description": "Accounting transactions"
+    },
+    "accounting_balances": {
+      "schema": "AccountingBalance",
+      "description": "User accounting balances"
+    }
+  }
+}

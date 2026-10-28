@@ -1,11 +1,14 @@
 import React, { useState } from 'react';
 import { motion } from 'framer-motion';
-import { LogIn, ShieldCheck, UserCheck, AlertCircle, Sparkles, KeyRound, Lock } from 'lucide-react';
+import { LogIn, ShieldCheck, UserCheck, AlertCircle, Sparkles, KeyRound, Lock, User as UserIcon } from 'lucide-react';
 import { User } from '../../types.ts';
 import { hasRole } from '../../utils.ts';
+import { auth, signInWithGoogle } from '../../src/lib/firebase.ts';
+import { onAuthStateChanged } from 'firebase/auth';
 
 interface LoginViewProps {
   onLogin: (identifier: string, pass: string) => Promise<{ success: boolean; error?: string; notFound?: boolean }>;
+  onGoogleLogin?: (user: any) => void;
   t: (key: string) => string;
   currentUser?: User | null;
   onQuickOwnerLogin?: () => void;
@@ -13,6 +16,7 @@ interface LoginViewProps {
 
 const LoginView: React.FC<LoginViewProps> = ({ 
   onLogin, 
+  onGoogleLogin,
   t, 
   currentUser, 
   onQuickOwnerLogin 
@@ -21,8 +25,44 @@ const LoginView: React.FC<LoginViewProps> = ({
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [isSyncing, setIsSyncing] = useState(false);
 
   const isVipOrAdmin = currentUser && hasRole(currentUser, ['VIP+', 'vip+', 'vip_plus', 'admin', 'developer', 'VIP']);
+
+  React.useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
+      if (firebaseUser && onGoogleLogin) {
+        setIsSyncing(true);
+        try {
+          const idToken = await firebaseUser.getIdToken();
+          const response = await fetch('/api/accounting_login', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${idToken}` },
+            body: JSON.stringify({ identifier: firebaseUser.uid })
+          });
+          if (response.ok) {
+            const res = await response.json();
+            onGoogleLogin(res);
+          }
+        } catch (e) {} finally {
+          setIsSyncing(false);
+        }
+      }
+    });
+    return () => unsubscribe();
+  }, [onGoogleLogin]);
+
+  const handleGoogleLogin = async () => {
+    setError(null);
+    setIsLoading(true);
+    try {
+      await signInWithGoogle();
+    } catch (err: any) {
+      setError(err.message || 'Google Login failed');
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   const handleLoginSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -73,6 +113,28 @@ const LoginView: React.FC<LoginViewProps> = ({
           </p>
         </div>
 
+        {/* Google Login Button */}
+        <div className="mb-6">
+          <button 
+            onClick={handleGoogleLogin}
+            disabled={isLoading || isSyncing}
+            className="w-full bg-white dark:bg-slate-800 text-slate-900 dark:text-white py-4 rounded-2xl font-black shadow-xl transition-all transform active:scale-95 text-sm hover:bg-slate-50 dark:hover:bg-slate-700 flex items-center justify-center gap-3 border border-slate-100 dark:border-slate-700 disabled:opacity-70 cursor-pointer"
+          >
+            {isSyncing ? (
+              <div className="w-5 h-5 border-2 border-primary/30 border-t-primary rounded-full animate-spin" />
+            ) : (
+              <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" className="w-5 h-5" alt="G" />
+            )}
+            <span>{isSyncing ? 'خەریکی پشکنینە...' : (t('login_with_google') || 'چوونەژوورەوە بە Google')}</span>
+          </button>
+
+          <div className="relative flex items-center py-5">
+            <div className="flex-grow border-t border-slate-100 dark:border-slate-800"></div>
+            <span className="flex-shrink mx-4 text-slate-300 text-[9px] font-black uppercase tracking-widest">{t('or') || 'یان'}</span>
+            <div className="flex-grow border-t border-slate-100 dark:border-slate-800"></div>
+          </div>
+        </div>
+
         {/* Quick Login for Already Logged-in VIP+ User */}
         {isVipOrAdmin && onQuickOwnerLogin && (
           <div className="mb-6 p-4 rounded-2xl bg-amber-500/10 border border-amber-500/30 flex flex-col gap-2">
@@ -94,19 +156,6 @@ const LoginView: React.FC<LoginViewProps> = ({
           </div>
         )}
 
-        {/* Notice if logged in user does NOT have VIP+ */}
-        {currentUser && !isVipOrAdmin && (
-          <div className="mb-6 p-4 rounded-2xl bg-amber-500/10 border border-amber-500/30 flex items-start gap-3">
-            <Lock size={18} className="text-amber-500 shrink-0 mt-0.5" />
-            <div className="text-[11px] text-slate-600 dark:text-slate-300 font-medium leading-relaxed">
-              <p className="font-bold text-slate-800 dark:text-slate-200 mb-1">
-                پێویستت بە ڕۆڵی VIP+ هەیە
-              </p>
-              ئەم بەشە تەنها بۆ خاوەنکارانی VIP+ و کارمەندەکانیانە. ئەگەر بەڕێوەبەر ڕۆڵی پێ دایت دەتوانیت بچیتە ژوورەوە، یان ئەگەر کارمەندی بە زانیارییەکانی کارمەند لە خوارەوە بچۆ ژوورەوە.
-            </div>
-          </div>
-        )}
-
         {/* Error Alert */}
         {error && (
           <motion.div
@@ -123,34 +172,40 @@ const LoginView: React.FC<LoginViewProps> = ({
         <form onSubmit={handleLoginSubmit} className="space-y-4">
           <div>
             <label className="block text-[11px] font-black text-slate-500 uppercase tracking-wider mb-2">
-              ئیمەیڵ یان ناوی بەکارهێنەر (خاوەنکاری VIP+ یان کارمەند)
+              ئیمەیڵ یان ناوی بەکارهێنەر (بۆ کارمەندەکان)
             </label>
-            <input 
-              type="text" 
-              placeholder="ئیمەیڵی خاوەنکار یان ناوی کارمەند" 
-              value={identifier} 
-              onChange={(e) => setIdentifier(e.target.value)}
-              className="w-full p-3.5 bg-slate-50 dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white font-bold text-sm focus:ring-2 focus:ring-amber-500 outline-none transition-all"
-              required
-            />
+            <div className="relative">
+              <input 
+                type="text" 
+                placeholder="ئیمەیڵی خاوەنکار یان ناوی کارمەند" 
+                value={identifier} 
+                onChange={(e) => setIdentifier(e.target.value)}
+                className="w-full p-3.5 pr-11 bg-slate-50 dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white font-bold text-sm focus:ring-2 focus:ring-amber-500 outline-none transition-all"
+                required
+              />
+              <UserIcon className="absolute right-4 top-3.5 text-slate-300 dark:text-slate-600" size={18} />
+            </div>
           </div>
 
           <div>
             <label className="block text-[11px] font-black text-slate-500 uppercase tracking-wider mb-2">
               {t('password') || 'وشەی نهێنی'}
             </label>
-            <input 
-              type="password" 
-              placeholder="••••••••" 
-              value={password} 
-              onChange={(e) => setPassword(e.target.value)}
-              className="w-full p-3.5 bg-slate-50 dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white font-bold text-sm focus:ring-2 focus:ring-amber-500 outline-none transition-all"
-            />
+            <div className="relative">
+              <input 
+                type="password" 
+                placeholder="••••••••" 
+                value={password} 
+                onChange={(e) => setPassword(e.target.value)}
+                className="w-full p-3.5 pr-11 bg-slate-50 dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white font-bold text-sm focus:ring-2 focus:ring-amber-500 outline-none transition-all"
+              />
+              <Lock className="absolute right-4 top-3.5 text-slate-300 dark:text-slate-600" size={18} />
+            </div>
           </div>
 
           <button 
             type="submit"
-            disabled={isLoading}
+            disabled={isLoading || isSyncing}
             className="w-full p-4 bg-primary hover:bg-primary/90 text-white rounded-2xl font-black text-sm flex items-center justify-center gap-2 shadow-lg shadow-primary/20 transition-all active:scale-95 disabled:opacity-50 cursor-pointer"
           >
             <LogIn size={18} />

@@ -643,7 +643,7 @@ const App: React.FC = () => {
   useEffect(() => {
     const handleBlur = (e: FocusEvent) => {
       const target = e.target as HTMLElement;
-      if (!target || !target.hasAttribute('data-edit-id')) return;
+      if (!target || typeof target.hasAttribute !== 'function' || !target.hasAttribute('data-edit-id')) return;
 
       const id = target.getAttribute('data-edit-id');
       const type = target.getAttribute('data-edit-type');

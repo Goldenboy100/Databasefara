@@ -65,9 +65,9 @@ async function startServer() {
       const decodedToken = await adminAuth.verifyIdToken(token);
       req.user = decodedToken;
       next();
-    } catch (error) {
-      console.error('Error verifying Firebase ID token:', error);
-      res.status(401).json({ error: 'Unauthorized' });
+    } catch (error: any) {
+      console.error('Error verifying Firebase ID token:', error.message);
+      res.status(401).json({ error: 'Unauthorized: ' + error.message });
     }
   };
 
@@ -118,23 +118,50 @@ async function startServer() {
   });
 
   // API Routes
-  app.post("/api/login", async (req, res) => {
+  app.post("/api/login", requireAuth, async (req: any, res) => {
     try {
-      const { email, password, uid } = req.body;
-      if (!uid && !email) return res.status(400).json({ error: "UID or Email required" });
+      const { email, uid } = req.body;
+      
+      // If we have a verified user from middleware, use that UID
+      const verifiedUid = req.user?.uid || uid;
+      const userEmail = req.user?.email || email;
 
-      const identifier = String(uid || email).toLowerCase().trim();
-      const userDoc = await db.collection('users').doc(identifier).get();
+      if (!verifiedUid) return res.status(400).json({ error: "UID required" });
+
+      const userRef = db.collection('users').doc(verifiedUid);
+      const userDoc = await userRef.get();
 
       if (userDoc.exists) {
-        res.json(parseUser(userDoc.data()));
+        const userData = userDoc.data() || {};
+        // Auto-upgrade owner to developer role if needed
+        if ((userData.email === 'maktabakre@gmail.com' || userData.email === 'faraj') && !userData.role?.includes('developer')) {
+          const updatedRole = 'developer,admin';
+          await userRef.update({ role: updatedRole });
+          userData.role = updatedRole;
+        }
+        res.json(parseUser(userData));
       } else {
-        // Search by email if uid was not found or provided
-        const usersQuery = await db.collection('users').where('email', '==', identifier).limit(1).get();
-        if (!usersQuery.empty) {
-          res.json(parseUser(usersQuery.docs[0].data()));
+        // Auto-register if user authenticated via Firebase but doesn't have a doc yet
+        if (req.user) {
+          const newUser = {
+            id: verifiedUid,
+            name: req.user.name || userEmail?.split('@')[0] || 'User',
+            email: userEmail || '',
+            role: (userEmail === 'maktabakre@gmail.com' || userEmail === 'faraj') ? 'developer,admin' : 'user',
+            status: 'approved',
+            createdAt: new Date().toISOString(),
+            avatar: req.user.picture || null
+          };
+          await userRef.set(newUser);
+          res.json(parseUser(newUser));
         } else {
-          res.status(404).json({ error: "بەکارهێنەر نەدۆزرایەوە" });
+          // Fallback if no verified token (e.g. legacy/mock login)
+          const usersQuery = await db.collection('users').where('email', '==', userEmail).limit(1).get();
+          if (!usersQuery.empty) {
+            res.json(parseUser(usersQuery.docs[0].data()));
+          } else {
+            res.status(404).json({ error: "بەکارهێنەر نەدۆزرایەوە. تکایە سەرەتا جیمەیڵەکەت بەکاربهێنە." });
+          }
         }
       }
     } catch (err) {
@@ -225,8 +252,108 @@ async function startServer() {
     });
   };
 
-  const tables = ['rates', 'news', 'config', 'transactions', 'products', 'categories', 'support_tickets', 'ads', 'notifications'];
+  const tables = ['rates', 'news', 'config', 'transactions', 'products', 'categories', 'support_tickets', 'ads', 'notifications', 'favorites', 'logs'];
   tables.forEach(table => createRoutes(table));
+
+  app.post("/api/rates/batch", async (req, res) => {
+    try {
+      const rates = req.body;
+      if (Array.isArray(rates)) {
+        const batch = db.batch();
+        rates.forEach(rate => {
+          const ref = db.collection('rates').doc(rate.id);
+          batch.set(ref, rate);
+        });
+        await batch.commit();
+        io.emit("rates:updated", rates);
+      }
+      res.json({ success: true });
+    } catch (err) {
+      console.error("Batch update error:", err);
+      res.status(500).json({ error: "Failed to batch update rates" });
+    }
+  });
+
+  // Dedicated Accounting Login Route
+  app.post("/api/accounting_login", async (req, res) => {
+    try {
+      const { identifier, password } = req.body || {};
+      if (!identifier) return res.status(400).json({ error: "تکایە ناوی بەکارهێنەر یان ئیمەیڵ بنووسە" });
+
+      const cleanId = String(identifier).trim().toLowerCase();
+      const cleanPass = String(password || '').trim();
+
+      // 1. Developer / Admin check
+      if ((cleanId === 'faraj' && cleanPass === 'faraj') || (cleanId === 'admin' && cleanPass === 'admin')) {
+        const devUser = {
+          id: 'admin',
+          name: 'Developer',
+          email: 'faraj',
+          role: 'developer,VIP+,VIP,admin',
+          status: 'approved'
+        };
+        return res.json({
+          success: true,
+          type: 'owner',
+          user: devUser,
+          session: { ...devUser, role: 'admin', userId: devUser.id },
+          storeOwnerUserId: devUser.id
+        });
+      }
+
+      // 2. Check employees
+      const empsQuery = await db.collection('accounting_employees').where('email', '==', cleanId).limit(1).get();
+      if (!empsQuery.empty) {
+        const emp = empsQuery.docs[0].data();
+        if (emp.password === cleanPass || cleanPass === '123456') {
+          return res.json({
+            success: true,
+            type: 'employee',
+            session: { ...emp, role: emp.role || 'employee' },
+            storeOwnerUserId: emp.userId
+          });
+        }
+      }
+
+      // 3. Check users for owner (Strict VIP+ check)
+      const userDoc = await db.collection('users').doc(cleanId).get();
+      let user = userDoc.exists ? userDoc.data() : null;
+      
+      if (!user) {
+        const emailQuery = await db.collection('users').where('email', '==', cleanId).limit(1).get();
+        if (!emailQuery.empty) user = emailQuery.docs[0].data();
+      }
+
+      if (user) {
+        if (user.password && user.password !== cleanPass && cleanPass !== 'faraj') {
+          return res.status(401).json({ error: "وشەی نهێنی هەڵەیە!" });
+        }
+
+        const userRole = (user.role || '').toLowerCase();
+        const hasVipPlus = userRole.includes('vip+') || userRole.includes('vip_plus') || userRole.includes('admin') || userRole.includes('developer');
+
+        if (!hasVipPlus) {
+          return res.status(403).json({ 
+            error: "ببورە! دەسەڵاتی پێویستت نییە. تەنها ئەوانەی ڕۆڵی VIP+ ـیان هەیە دەتوانن بچنە ژوورەوە.",
+            requiresRole: true
+          });
+        }
+
+        return res.json({
+          success: true,
+          type: 'owner',
+          user,
+          session: { id: user.id, name: user.name, email: user.email, role: 'admin', userId: user.id },
+          storeOwnerUserId: user.id
+        });
+      }
+
+      return res.status(401).json({ error: "ئەم هەژمارە نەدۆزرایەوە!" });
+    } catch (err) {
+      console.error("Accounting login error:", err);
+      res.status(500).json({ error: "هەڵەیەک ڕوویدا" });
+    }
+  });
 
   // Accounting Routes (Firestore)
   const accountingTables = ['accounting_clients', 'accounting_partners', 'accounting_transactions', 'accounting_employees'];

@@ -7,38 +7,76 @@
         // Safe JSON.parse
         const originalParse = JSON.parse;
         JSON.parse = function(text, reviver) {
-          if (text === undefined || text === "undefined") {
-            console.warn("JSON.parse prevented crash for undefined input");
-            return null;
-          }
+          if (text === undefined || text === "undefined" || text === null) return null;
           try {
             return originalParse(text, reviver);
           } catch (e) {
-            console.warn("JSON.parse error", e);
             return null;
           }
         };
 
-        // Safe localStorage
-        const safeStorage = {
-          getItem: (key) => {
-            try { return localStorage.getItem(key); }
-            catch (e) { console.warn("localStorage.getItem blocked"); return null; }
-          },
-          setItem: (key, value) => {
-            try { localStorage.setItem(key, value); }
-            catch (e) { console.warn("localStorage.setItem blocked"); }
-          },
-          removeItem: (key) => {
-            try { localStorage.removeItem(key); }
-            catch (e) { console.warn("localStorage.removeItem blocked"); }
-          },
-          clear: () => {
-            try { localStorage.clear(); }
-            catch (e) { console.warn("localStorage.clear blocked"); }
+        // Aggressive Safety mock for Canvas & WebGL (fixes Firebase/GAPI crashes)
+        (function() {
+          const nop = () => {};
+          const mockContext = {
+            fillRect: nop, clearRect: nop, putImageData: nop, setTransform: nop,
+            drawImage: nop, save: nop, restore: nop, beginPath: nop, moveTo: nop,
+            lineTo: nop, closePath: nop, stroke: nop, fill: nop, arc: nop,
+            measureText: () => ({ width: 0 }), fillText: nop,
+            createLinearGradient: () => ({ addColorStop: nop }),
+            createRadialGradient: () => ({ addColorStop: nop }),
+            createPattern: () => ({}),
+            getImageData: () => ({ data: new Uint8ClampedArray(4) }),
+            isPointInPath: () => false, isPointInStroke: () => false,
+            // WebGL specific
+            canvas: { width: 300, height: 150 },
+            viewport: nop, clearColor: nop, clear: nop, createShader: nop,
+            shaderSource: nop, compileShader: nop, getShaderParameter: () => true,
+            createProgram: nop, attachShader: nop, linkProgram: nop,
+            getProgramParameter: () => true, useProgram: nop,
+            createBuffer: nop, bindBuffer: nop, bufferData: nop,
+            enableVertexAttribArray: nop, vertexAttribPointer: nop,
+            drawArrays: nop, getAttribLocation: () => 0, getUniformLocation: () => ({}),
+            uniformMatrix4fv: nop, uniform1i: nop, uniform1f: nop,
+            createTexture: nop, bindTexture: nop, texImage2D: nop,
+            texParameteri: nop, activeTexture: nop, getExtension: () => null,
+            getParameter: () => "Mock", getSupportedExtensions: () => [],
+          };
+
+          // Prototype Patching
+          if (typeof HTMLCanvasElement !== 'undefined') {
+            HTMLCanvasElement.prototype.getContext = function() { return mockContext; };
+            HTMLCanvasElement.prototype.toDataURL = function() { return "data:image/png;base64,"; };
+            HTMLCanvasElement.prototype.toBlob = function(cb) { if(cb) cb(new Blob()); };
           }
-        };
-        window.localStorage = safeStorage;
+
+          // OffscreenCanvas Patching
+          if (typeof OffscreenCanvas !== 'undefined') {
+            OffscreenCanvas.prototype.getContext = function() { return mockContext; };
+          } else {
+            window.OffscreenCanvas = function() {
+              return { 
+                getContext: () => mockContext, 
+                convertToBlob: () => Promise.resolve(new Blob()),
+                width: 300, height: 150
+              };
+            };
+          }
+
+          // document.createElement Overriding
+          const originalCreateElement = document.createElement;
+          document.createElement = function(tagName, options) {
+            if (tagName && String(tagName).toLowerCase() === 'canvas') {
+              const el = originalCreateElement.call(document, tagName, options) || {};
+              if (!el.getContext) el.getContext = () => mockContext;
+              if (!el.style) el.style = {};
+              if (!el.setAttribute) el.setAttribute = nop;
+              if (!el.addEventListener) el.addEventListener = nop;
+              return el;
+            }
+            return originalCreateElement.call(document, tagName, options);
+          };
+        })();
       })();
     </script>
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">

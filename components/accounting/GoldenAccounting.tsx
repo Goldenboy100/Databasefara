@@ -252,12 +252,31 @@ const GoldenAccounting: React.FC<GoldenAccountingProps> = ({ config, language, t
     try { localStorage.removeItem(sessionKey); } catch (_) {}
   };
 
+  const handleGoogleLogin = (data: any) => {
+    if (data && data.success) {
+      const sessionUser: Employee = {
+        id: data.session.id,
+        name: data.session.name,
+        email: data.session.email,
+        role: data.session.role,
+        createdAt: data.session.createdAt,
+        userId: data.session.userId,
+        storeOwnerUserId: data.storeOwnerUserId || data.session.userId
+      };
+
+      setAccountingUser(sessionUser);
+      try { localStorage.setItem(sessionKey, JSON.stringify(sessionUser)); } catch (_) {}
+      if (data.user && onUserLogin) onUserLogin(data.user);
+    }
+  };
+
   // If not logged in, show LoginView
   if (!accountingUser) {
     const isVipOrAdmin = currentUser && hasRole(currentUser, ['VIP+', 'vip+', 'vip_plus', 'admin', 'developer', 'VIP']);
     return (
       <LoginView 
         onLogin={handleLogin} 
+        onGoogleLogin={handleGoogleLogin}
         t={t} 
         currentUser={currentUser}
         onQuickOwnerLogin={isVipOrAdmin ? handleQuickOwnerLogin : undefined}

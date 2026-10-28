@@ -2,7 +2,7 @@ import React, { useState, useEffect, memo } from 'react';
 import { TrendingUp, Key, Mail, ShieldAlert, UserPlus, ArrowRight, User as UserIcon, LogIn } from 'lucide-react';
 import { User, AppConfig } from '../types';
 import { auth, signInWithGoogle } from '../src/lib/firebase.ts';
-import { onAuthStateChanged } from 'firebase/auth';
+import { onAuthStateChanged, getRedirectResult } from 'firebase/auth';
 
 interface LoginProps {
   onLogin: (user: User) => void;
@@ -24,11 +24,18 @@ const Login: React.FC<LoginProps> = memo(({ onLogin, onRegister, t, config, user
   const [isLoading, setIsLoading] = useState(false);
 
   useEffect(() => {
+    // Check for redirect result on mount
+    getRedirectResult(auth).catch(err => {
+      console.error("Redirect result error:", err);
+    });
+
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
       if (firebaseUser) {
         setIsLoading(true);
+        setError('');
         try {
-          const idToken = await firebaseUser.getIdToken();
+          const idToken = await firebaseUser.getIdToken(true);
+          console.log("Firebase user authenticated, syncing with backend...");
           const response = await fetch('/api/login', {
             method: 'POST',
             headers: { 
@@ -40,32 +47,40 @@ const Login: React.FC<LoginProps> = memo(({ onLogin, onRegister, t, config, user
 
           if (response.ok) {
             const user = await response.json();
+            console.log("Backend sync successful:", user.name);
             onLogin(user);
           } else {
-            // User exists in Firebase but not in our 'users' collection yet
-            // If they just registered, handle that
-            if (!isRegistering) {
-              setError(t('user_not_found_in_db') || 'تکایە سەرەتا خۆت تۆمار بکە');
-            }
+            const errData = await response.json().catch(() => ({}));
+            console.error("Backend sync failed:", errData.error || response.statusText);
+            setError(errData.error || t('sync_error') || 'هەڵەیەک لە سێرڤەر ڕوویدا');
           }
-        } catch (err) {
-          console.error("Auth sync error:", err);
+        } catch (err: any) {
+          console.error("Auth sync exception:", err.message);
+          setError(t('no_server_connection') || 'کێشەی پەیوەندی بە سێرڤەرەوە هەیە');
         } finally {
           setIsLoading(false);
         }
+      } else {
+        setIsLoading(false);
       }
     });
     return () => unsubscribe();
-  }, [onLogin, t, isRegistering]);
+  }, [onLogin, t]);
 
   const handleGoogleLogin = async () => {
     setError('');
     setIsLoading(true);
+    console.log("Initiating Google Sign-in...");
     try {
       await signInWithGoogle();
-      // onAuthStateChanged will handle the rest
+      // onAuthStateChanged will handle the redirect/popup result
     } catch (err: any) {
-      setError(err.message || 'Google Login failed');
+      console.error("Google Sign-in error:", err.code, err.message);
+      let errorMsg = t('google_login_failed') || 'چوونەژوورەوە سەرکەوتوو نەبوو';
+      if (err.code === 'auth/popup-blocked') errorMsg = t('popup_blocked') || 'تکایە ڕێگە بە پەنجەرەی پۆپ-ئەپ بدە';
+      if (err.code === 'auth/cancelled-popup-request') return; // User closed the popup
+      
+      setError(errorMsg + " (" + (err.code || 'unknown') + ")");
       setIsLoading(false);
     }
   };
@@ -142,11 +157,16 @@ const Login: React.FC<LoginProps> = memo(({ onLogin, onRegister, t, config, user
             className="w-full bg-white dark:bg-slate-800 text-slate-900 dark:text-white py-5 rounded-2xl font-black shadow-xl transition-all transform active:scale-95 text-lg hover:bg-slate-50 dark:hover:bg-slate-700 flex items-center justify-center gap-3 border-2 border-slate-100 dark:border-slate-700 disabled:opacity-70"
           >
             {isLoading ? (
-              <div className="w-5 h-5 border-2 border-primary/30 border-t-primary rounded-full animate-spin" />
+              <>
+                <div className="w-5 h-5 border-2 border-primary/30 border-t-primary rounded-full animate-spin" />
+                <span>{t('syncing_account') || 'خەریکی پشکنینی هەژمارە...'}</span>
+              </>
             ) : (
-              <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" className="w-6 h-6" alt="G" />
+              <>
+                <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" className="w-6 h-6" alt="G" />
+                <span>{t('login_with_google') || 'چوونەژوورەوە بە Google'}</span>
+              </>
             )}
-            <span>{t('login_with_google') || 'چوونەژوورەوە بە جیمەیڵ'}</span>
           </button>
 
           <div className="relative flex items-center py-4">
